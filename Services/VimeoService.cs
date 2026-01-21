@@ -304,10 +304,55 @@ public class VimeoService : IDisposable
         // Step 2: Upload video file using TUS protocol
         await UploadVideoFileUsingTusAsync(uploadLink, videoPath, fileSize);
 
-        // Step 3: Verify upload is complete and wait for processing
-        await WaitForVideoProcessingAsync(videoUri);
+        // Step 3: Verify upload is complete (but don't wait for processing - thumbnails can be set immediately)
+        // Note: Video processing happens asynchronously on Vimeo's side
+        // Custom image thumbnails can be set immediately after upload completes
+        Console.WriteLine("Video upload complete. Processing will continue in background on Vimeo.");
 
         return videoUri;
+    }
+
+    /// <summary>
+    /// Waits for video processing to complete. Use this only if you need to ensure video is fully processed.
+    /// For custom thumbnails, this is not necessary - they can be set immediately after upload.
+    /// </summary>
+    public async Task WaitForVideoProcessingAsync(string videoUri)
+    {
+        var maxAttempts = 60; // Wait up to 5 minutes (5 seconds * 60)
+        var attempt = 0;
+
+        Console.WriteLine("Waiting for video processing to complete...");
+
+        while (attempt < maxAttempts)
+        {
+            await Task.Delay(5000); // Wait 5 seconds
+
+            var response = await _httpClient.GetAsync($"https://api.vimeo.com{videoUri}");
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            var json = JObject.Parse(content);
+
+            var status = json["status"]?.ToString();
+            if (status == "available")
+            {
+                Console.WriteLine("✓ Video processing complete");
+                return;
+            }
+
+            if (status == "error")
+                throw new Exception("Video processing failed on Vimeo");
+
+            attempt++;
+            
+            // Show progress every 30 seconds
+            if (attempt % 6 == 0)
+            {
+                Console.WriteLine($"  Still processing... ({attempt * 5} seconds elapsed)");
+            }
+        }
+
+        throw new Exception("Video processing timeout");
     }
 
     private async Task UploadVideoFileUsingTusAsync(string uploadLink, string videoPath, long fileSize)
@@ -421,38 +466,6 @@ public class VimeoService : IDisposable
         return 0;
     }
 
-    private async Task WaitForVideoProcessingAsync(string videoUri)
-    {
-        var maxAttempts = 60; // Wait up to 5 minutes (5 seconds * 60)
-        var attempt = 0;
-
-        while (attempt < maxAttempts)
-        {
-            await Task.Delay(5000); // Wait 5 seconds
-
-            var response = await _httpClient.GetAsync($"https://api.vimeo.com{videoUri}");
-            response.EnsureSuccessStatusCode();
-
-            var content = await response.Content.ReadAsStringAsync();
-            var json = JObject.Parse(content);
-
-            var status = json["status"]?.ToString();
-            if (status == "available")
-            {
-                // Wait a bit more to ensure video is fully ready for thumbnail operations
-                Console.WriteLine("Video processing complete. Waiting a moment before proceeding...");
-                await Task.Delay(2000); // Wait 2 more seconds
-                return;
-            }
-
-            if (status == "error")
-                throw new Exception("Video processing failed on Vimeo");
-
-            attempt++;
-        }
-
-        throw new Exception("Video processing timeout");
-    }
 
     public async Task SetThumbnailAsync(string videoUri, string thumbnailPath)
     {

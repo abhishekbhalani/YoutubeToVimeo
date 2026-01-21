@@ -124,25 +124,28 @@ public class VideoMigrationService
                 var videoId = videoUri.Split('/').Last();
                 Console.WriteLine($"Video uploaded successfully! Video ID: {videoId}");
                 
-                // Note: WaitForVideoProcessingAsync is called inside UploadVideoAsync
-                // Video should be fully processed before setting thumbnail
-
-                // Upload thumbnail if available (after video is processed)
+                // Upload thumbnail immediately after upload (custom images don't require video processing)
+                // This saves time - we don't need to wait for video processing to complete
                 if (!string.IsNullOrEmpty(thumbnailPath) && File.Exists(thumbnailPath))
                 {
-                    Console.WriteLine($"Setting thumbnail...");
+                    Console.WriteLine($"Setting thumbnail (can be done immediately, no need to wait for processing)...");
                     try
                     {
                         await _vimeoService.SetThumbnailAsync(videoUri, thumbnailPath);
-                        Console.WriteLine($"Thumbnail set successfully!");
+                        Console.WriteLine($"✓ Thumbnail set successfully!");
                     }
                     catch (Exception thumbEx)
                     {
-                        Console.WriteLine($"Warning: Failed to set thumbnail: {thumbEx.Message}");
-                        Console.WriteLine($"  Video uploaded successfully, but thumbnail may need to be set manually.");
+                        Console.WriteLine($"⚠ Warning: Failed to set thumbnail: {thumbEx.Message}");
+                        Console.WriteLine($"  Video uploaded successfully. Thumbnail may need to be set manually.");
                         // Don't fail the whole upload if thumbnail fails
+                        // Note: If thumbnail fails, you can retry later when video processing completes
                     }
                 }
+                
+                // Note: Video processing continues in background on Vimeo
+                // The video will be available for viewing once processing completes
+                // Custom thumbnails work immediately, but video playback may take a few minutes
 
                 // Update record as uploaded
                 _databaseService.UpdateRecordStatus(record.Id, "uploaded", videoId, videoUri);
